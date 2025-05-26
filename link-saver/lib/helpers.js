@@ -1,33 +1,46 @@
-// Format date to readable format
-export function formatDate(dateString) {
-  const date = new Date(dateString);
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric'
-  }).format(date);
-}
+import axios from 'axios'
+import cheerio from 'cheerio'
 
-// Extract domain from URL
-export function extractDomain(url) {
+export async function getMetadata(url) {
   try {
-    const domain = new URL(url);
-    return domain.hostname.replace('www.', '');
-  } catch (e) {
-    return url;
+    const response = await axios.get(url)
+    const html = response.data
+    const $ = cheerio.load(html)
+
+    // Get favicon
+    let favicon = $('link[rel="icon"]').attr('href') || 
+                 $('link[rel="shortcut icon"]').attr('href') || 
+                 $('link[rel="apple-touch-icon"]').attr('href')
+
+    // Handle relative favicon URLs
+    if (favicon && !favicon.startsWith('http')) {
+      const urlObj = new URL(url)
+      favicon = favicon.startsWith('/') 
+        ? `${urlObj.protocol}//${urlObj.host}${favicon}`
+        : `${urlObj.protocol}//${urlObj.host}/${favicon}`
+    }
+
+    const metadata = {
+      title: $('meta[property="og:title"]').attr('content') || 
+             $('title').text() || 
+             url,
+      description: $('meta[property="og:description"]').attr('content') || 
+                  $('meta[name="description"]').attr('content') || 
+                  '',
+      favicon: favicon || `${new URL(url).origin}/favicon.ico`,
+      image: $('meta[property="og:image"]').attr('content') || 
+             $('meta[name="twitter:image"]').attr('content') || 
+             null
+    }
+
+    return metadata
+  } catch (error) {
+    console.error('Error fetching metadata:', error)
+    return {
+      title: url,
+      description: '',
+      favicon: null,
+      image: null
+    }
   }
-}
-
-// Truncate text with ellipsis
-export function truncateText(text, maxLength = 100) {
-  if (!text) return '';
-  return text.length > maxLength
-    ? `${text.substring(0, maxLength)}...`
-    : text;
-}
-
-// Generate initials from email
-export function getInitials(email) {
-  if (!email) return 'U';
-  return email.charAt(0).toUpperCase();
 }

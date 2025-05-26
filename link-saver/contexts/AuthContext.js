@@ -1,78 +1,42 @@
-import { createContext, useContext, useEffect, useState } from 'react';
-import { useRouter } from 'next/router';
-import { supabase } from '../lib/supabase';
+import { createContext, useContext, useEffect, useState } from 'react'
+import { supabase } from '../lib/supabase'
 
-const AuthContext = createContext();
+const AuthContext = createContext({})
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const router = useRouter();
+  const [user, setUser] = useState(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Check for active session
-    const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setUser(session?.user || null);
-      setLoading(false);
-      
-      // Listen for auth changes
-      const { data: { subscription } } = await supabase.auth.onAuthStateChange(
-        (_event, session) => {
-          setUser(session?.user || null);
-        }
-      );
+    // Check active sessions and sets the user
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null)
+      setLoading(false)
+    })
 
-      return () => subscription.unsubscribe();
-    };
+    // Listen for changes on auth state (sign in, sign out, etc.)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null)
+      setLoading(false)
+    })
 
-    checkSession();
-  }, []);
-
-  const signUp = async (email, password) => {
-    try {
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-      });
-      
-      if (error) throw error;
-      return true;
-    } catch (error) {
-      throw error;
-    }
-  };
-
-  const signIn = async (email, password) => {
-    try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-      
-      if (error) throw error;
-      router.push('/');
-    } catch (error) {
-      throw error;
-    }
-  };
-
-  const signOut = async () => {
-    await supabase.auth.signOut();
-    router.push('/login');
-  };
+    return () => subscription.unsubscribe()
+  }, [])
 
   const value = {
+    signUp: (data) => supabase.auth.signUp(data),
+    signIn: (data) => supabase.auth.signInWithPassword(data),
+    signOut: () => supabase.auth.signOut(),
     user,
-    loading,
-    signUp,
-    signIn,
-    signOut,
-  };
+  }
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      {!loading && children}
+    </AuthContext.Provider>
+  )
 }
 
-export function useAuth() {
-  return useContext(AuthContext);
+export const useAuth = () => {
+  return useContext(AuthContext)
 }

@@ -1,179 +1,96 @@
-import { useState, useEffect } from 'react';
-import axios from 'axios';
-import Modal from '../ui/Modal';
-import Button from '../ui/Button';
-import Input from '../ui/Input';
-import Loader from '../ui/Loader';
-import { supabase } from '../../lib/supabase'; // Import supabase client
+import { useState } from 'react'
+import { useAuth } from '../../contexts/AuthContext' // Update the import path
 
-export default function AddBookmarkModal({ isOpen, onClose, onSave }) {
-  const [url, setUrl] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [preview, setPreview] = useState(null);
-  const [token, setToken] = useState(null);
-
-  useEffect(() => {
-    const getSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.access_token) {
-        setToken(session.access_token);
-      }
-    };
-
-    if (isOpen) {
-      getSession();
-    }
-  }, [isOpen]);
-
-  const resetState = () => {
-    setUrl('');
-    setLoading(false);
-    setPreview(null);
-  };
-
-  const handleClose = () => {
-    resetState();
-    onClose();
-  };
-
-  const fetchLinkData = async () => {
-    try {
-      setLoading(true);
-
-      const { data: extractData } = await axios.post('/api/extract-link', { url });
-      const { data: summaryData } = await axios.post('/api/summarize', { url });
-
-      setPreview({
-        url,
-        title: extractData.title,
-        favicon: extractData.favicon,
-        imageUrl: extractData.imageUrl,
-        summary: summaryData.summary
-      });
-
-      setLoading(false);
-    } catch (error) {
-      setLoading(false);
-      console.error('Error fetching link data:', error);
-    }
-  };
+export default function AddBookmarkModal({ isOpen, onClose, onSuccess }) {
+  const [url, setUrl] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const { user } = useAuth() // Get user from auth context
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-
-    if (!url) {
-      return;
+    e.preventDefault()
+    
+    if (!user) {
+      setError('Please sign in to save bookmarks')
+      return
     }
 
-    if (!preview) {
-      await fetchLinkData();
-      return;
-    }
-
-    if (!token) {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.access_token) {
-          return;
-        }
-        setToken(session.access_token);
-      } catch (error) {
-        console.error('Authentication error:', error);
-        return;
-      }
-    }
+    setLoading(true)
+    setError('')
 
     try {
-      setLoading(true);
+      // Validate URL
+      new URL(url) // This will throw if URL is invalid
 
-      const response = await axios.post('/api/bookmarks/save', preview, {
+      const response = await fetch('/api/bookmarks/save', {
+        method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url }),
+      })
 
-      if (onSave) {
-        await onSave(response.data.bookmark);
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to save bookmark')
       }
 
-      handleClose();
+      onSuccess(data)
+      setUrl('')
+      onClose()
     } catch (error) {
-      console.error('Error saving bookmark:', error);
-      setLoading(false);
+      setError(error.message === 'Failed to construct URL: Invalid URL'
+        ? 'Please enter a valid URL'
+        : error.message)
+    } finally {
+      setLoading(false)
     }
-  };
+  }
 
-  const modalFooter = (
-    <div className="flex justify-end space-x-3">
-      <Button variant="outline" onClick={handleClose} disabled={loading}>
-        Cancel
-      </Button>
-      <Button type="submit" form="add-bookmark-form" disabled={loading}>
-        {preview ? 'Save Bookmark' : 'Fetch Link Data'}
-      </Button>
-    </div>
-  );
+  if (!isOpen) return null
 
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={handleClose}
-      title="Add New Bookmark"
-      footer={modalFooter}
-      maxWidth="max-w-xl"
-    >
-      <form id="add-bookmark-form" onSubmit={handleSubmit}>
-        <Input
-          id="url"
-          label="Enter URL"
-          type="url"
-          placeholder="https://example.com"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          required
-          disabled={loading || preview}
-          className="mb-4"
-        />
-
-        {loading && (
-          <div className="py-8 flex justify-center">
-            <Loader />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+      <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
+        <h2 className="text-xl font-bold mb-4 dark:text-white">Add New Bookmark</h2>
+        {error && (
+          <div className="mb-4 p-3 bg-red-100 text-red-700 rounded">
+            {error}
           </div>
         )}
-
-        {preview && (
-          <div className="mt-4 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-            <div className="flex items-center mb-3">
-              {preview.favicon ? (
-                <img
-                  src={preview.favicon}
-                  alt=""
-                  className="h-6 w-6 mr-2 rounded"
-                  onError={(e) => {
-                    e.target.onerror = null;
-                    e.target.src = '/favicon-placeholder.png';
-                  }}
-                />
-              ) : (
-                <div className="h-6 w-6 mr-2 bg-gray-200 dark:bg-gray-700 rounded flex items-center justify-center text-xs font-bold text-gray-500 dark:text-gray-400">
-                  {new URL(url).hostname.charAt(0).toUpperCase()}
-                </div>
-              )}
-              <span className="text-xs text-gray-500 dark:text-gray-400">
-                {new URL(url).hostname.replace('www.', '')}
-              </span>
-            </div>
-
-            <h3 className="text-lg font-semibold mb-2 text-gray-900 dark:text-white">
-              {preview.title || 'Untitled'}
-            </h3>
-
-            <div className="text-sm text-gray-600 dark:text-gray-300 max-h-40 overflow-y-auto mb-2">
-              {preview.summary || 'No summary available'}
-            </div>
+        <form onSubmit={handleSubmit}>
+          <div className="mb-4">
+            <label className="block text-gray-700 dark:text-gray-200 text-sm font-bold mb-2">
+              URL <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              placeholder="https://example.com"
+              required
+            />
           </div>
-        )}
-      </form>
-    </Modal>
-  );
+          <div className="flex justify-end space-x-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+            >
+              {loading ? 'Saving...' : 'Save Bookmark'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
 }
